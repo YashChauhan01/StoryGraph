@@ -1,17 +1,18 @@
 import React from "react";
-import { ManuscriptEditor } from "./components/ManuscriptEditor";
-import { EntitySidebar } from "./components/EntitySidebar";
 import "./index.css";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import KnowledgeGraphPage from "./pages/KnowledgeGraphPage";
+import RAGQueryPage from "./pages/RAGQueryPage";
 
-function App() {
-  const manuscriptId = "test-manuscript";
-
+const App = () => {
   return (
-    <div className="editor-container">
-      <ManuscriptEditor manuscriptId={manuscriptId} />
-      <EntitySidebar />
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<KnowledgeGraphPage />} />
+        <Route path="/rag" element={<RAGQueryPage />} />
+      </Routes>
+    </BrowserRouter>
   );
-}
+};
 
 export default App;

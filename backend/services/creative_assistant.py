@@ -1,89 +1,89 @@
-# backend/services/creative_assistant.py
-
 import os
-from dotenv import load_dotenv
+from langchain_groq import ChatGroq
 from services.graph_manager import KnowledgeGraphManager
-
-load_dotenv()
 
 class CreativeAssistant:
     def __init__(self):
-        # Neo4j configuration from environment
-        neo4j_uri = os.getenv('NEO4J_URI', 'bolt://localhost:7687')
-        neo4j_user = os.getenv('NEO4J_USER', 'neo4j')
-        neo4j_password = os.getenv('NEO4J_PASSWORD', 'password')
-        self.graph_manager = KnowledgeGraphManager(neo4j_uri, neo4j_user, neo4j_password)
-        
-        # LLM placeholder (will be implemented)
-        self.llm = None
-    
-    async def suggest_next_scene(self, manuscript_id: str, context: dict):
-        """Generate scene suggestions based on current state"""
-        
-        # Get active arcs
-        active_arcs = await self._get_active_arcs(manuscript_id)
-        
-        # Analyze arc progression
-        arc_analysis = await self._analyze_arc_progression(active_arcs)
-        
-        # Generate suggestions
-        suggestions = await self._generate_scene_suggestions(
-            arc_analysis,
-            context
+        # 1. Reasoning engine for creative writing
+        self.llm = ChatGroq(
+            temperature=0.7,  # Higher temperature for more creative/varied prose
+            model_name="llama-3.1-70b-versatile",
+            groq_api_key=os.getenv("GROQ_API_KEY")
         )
         
-        return suggestions
+        # 2. Access to the graph history
+        self.graph_manager = KnowledgeGraphManager(
+            os.getenv('NEO4J_URI'),
+            os.getenv('NEO4J_USER'),
+            os.getenv('NEO4J_PASSWORD')
+        )
     
-    async def generate_dialogue(self, character_id: str, situation: str):
-        """Generate in-character dialogue"""
+    async def suggest_next_scene(self, manuscript_id: str, context: dict):
+        """Generates scene suggestions based on current graph state."""
+        # Get active arcs from Neo4j (Level 2 nodes)
+        active_arcs = await self._get_active_arcs(manuscript_id)
         
-        # Get character voice profile
-        voice_profile = await self._build_voice_profile(character_id)
+        prompt = f"""
+        You are a master novelist. Based on the current story state, suggest the next scene.
         
-        # Generate dialogue
-        prompt = f"""Generate dialogue for this character in this situation:
+        CURRENT CONTEXT:
+        Location: {context.get('current_location')}
+        Characters Present: {context.get('active_characters')}
+        Active Plot Arcs: {active_arcs}
+        
+        Suggest a scene that advances one of these arcs. 
+        Focus on sensory details and character tension.
+        """
+        
+        response = await self.llm.ainvoke(prompt)
+        return response.content
 
-Character Profile:
-{voice_profile}
-
-Situation: {situation}
-
-Write 2-3 lines of dialogue that match this character's established voice.
-"""
+    async def generate_dialogue(self, character_name: str, situation: str):
+        """Generates dialogue using the character's established 'Voice Profile'."""
         
-        dialogue = await self.llm.generate(prompt)
+        # Pull past dialogue from Neo4j to match tone
+        voice_history = await self._get_character_voice(character_name)
         
-        return dialogue
+        prompt = f"""
+        Generate dialogue for {character_name}.
+        
+        ESTABLISHED VOICE SAMPLES:
+        {voice_history}
+        
+        SITUATION: {situation}
+        
+        Write 3-4 lines of dialogue. Maintain the character's vocabulary and rhythm.
+        """
+        
+        response = await self.llm.ainvoke(prompt)
+        return response.content
     
-    async def _build_voice_profile(self, character_id: str):
-        """Extract character's speaking patterns"""
-        
-        with self.graph_manager.driver.session() as session:
+    async def _get_character_voice(self, character_name: str):
+        """Retrieves past dialogue snippets from the Knowledge Graph."""
+        async with self.graph_manager.driver.session() as session:
             query = """
-            MATCH (c:Character {character_id: $character_id})-[:APPEARS_IN]->(e:Event)
-            WHERE e.text CONTAINS c.name + ' said' OR e.text CONTAINS c.name + ':'
-            
-            RETURN e.text AS dialogue
+            MATCH (c:Character {name: $name})-[:APPEARS_IN]->(e:Event)
+            WHERE e.text CONTAINS '"' // Look for quotes in stored event text
+            RETURN e.text as line
             ORDER BY e.timestamp DESC
-            LIMIT 20
+            LIMIT 5
             """
+            result = await session.run(query, name=character_name)
+            records = await result.data()
             
-            results = session.run(query, character_id=character_id)
-            dialogues = [record['dialogue'] for record in results]
+            if not records:
+                return "No established voice yet. Use a standard neutral tone."
             
-            # Analyze patterns
-            analysis_prompt = f"""Analyze these dialogue samples and describe the character's voice:
+            return "\n".join([r['line'] for r in records])
 
-{chr(10).join(dialogues)}
-
-Describe:
-1. Vocabulary level
-2. Sentence structure patterns
-3. Common phrases
-4. Emotional tone
-5. Speech quirks
-"""
-            
-            voice_profile = await self.llm.generate(analysis_prompt)
-            
-            return voice_profile
+    async def _get_active_arcs(self, manuscript_id: str):
+        """Queries Neo4j for currently open Level 2 Arc nodes."""
+        async with self.graph_manager.driver.session() as session:
+            query = """
+            MATCH (a:Arc {status: 'active'})
+            RETURN a.name as name, a.description as desc
+            LIMIT 3
+            """
+            result = await session.run(query)
+            records = await result.data()
+            return records if records else "Main Plot"

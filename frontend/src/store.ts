@@ -1,49 +1,72 @@
-import { create } from "zustand";
+import { create } from 'zustand';
 
-interface Entity {
+// Define the shape of a Narrative Entity
+export interface Entity {
   text: string;
-  type: "character" | "location" | "object" | "event" | "time";
-  start: number;
-  end: number;
+  type: 'character' | 'location' | 'object' | 'event' | 'time';
 }
 
+// Define the shape of the Manuscript
 interface Manuscript {
-  id: string;
   title: string;
   content: string;
   chapter: number;
   paragraph: number;
 }
 
-interface StoryStore {
+interface StoryState {
+  // --- Data ---
   manuscript: Manuscript;
   entities: Entity[];
+  
+  // --- Connection & Status ---
   isConnected: boolean;
   processing: boolean;
-  setManuscript: (manuscript: Manuscript) => void;
-  setEntities: (entities: Entity[]) => void;
-  setConnected: (connected: boolean) => void;
-  setProcessing: (processing: boolean) => void;
+  
+  // --- Actions ---
+  // Updates the editor content in real-time
   updateContent: (content: string) => void;
+  
+  // Sets whether the WebSocket is active
+  setConnected: (status: boolean) => void;
+  
+  // Controls the 'Analyzing...' spinners in the UI
+  setProcessing: (status: boolean) => void;
+  
+  // Updates the list of extracted characters and locations
+  setEntities: (entities: Entity[]) => void;
+  
+  // Resets the session (useful for new chapters)
+  resetStory: () => void;
 }
 
-export const useStoryStore = create<StoryStore>((set) => ({
-  manuscript: {
-    id: "default",
-    title: "Untitled Manuscript",
-    content: "",
-    chapter: 1,
-    paragraph: 1,
+export const useStoryStore = create<StoryState>((set) => ({
+  // Initial State
+  manuscript: { 
+    title: "New Story", 
+    content: "", 
+    chapter: 1, 
+    paragraph: 0 
   },
   entities: [],
   isConnected: false,
   processing: false,
-  setManuscript: (manuscript) => set({ manuscript }),
-  setEntities: (entities) => set({ entities }),
-  setConnected: (connected) => set({ isConnected: connected }),
-  setProcessing: (processing) => set({ processing }),
-  updateContent: (content) =>
-    set((state) => ({
-      manuscript: { ...state.manuscript, content },
+
+  // Logic to update content
+  updateContent: (content) => 
+    set((state) => ({ 
+      manuscript: { ...state.manuscript, content } 
     })),
+
+  setConnected: (isConnected) => set({ isConnected }),
+  
+  setProcessing: (processing) => set({ processing }),
+  
+  setEntities: (entities) => set({ entities }),
+
+  resetStory: () => set({
+    manuscript: { title: "New Story", content: "", chapter: 1, paragraph: 0 },
+    entities: [],
+    processing: false
+  }),
 }));
